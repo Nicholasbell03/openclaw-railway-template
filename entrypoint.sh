@@ -7,7 +7,7 @@ if [ -n "${WIREGUARD_CONFIG:-}" ]; then
   WG_CONF=/tmp/wireproxy.conf
   {
     printf '%s\n' "$WIREGUARD_CONFIG" | awk '
-      /^\[Interface\]/ { print; print "MTU = 1024"; next }
+      /^\[Interface\]/ { print; print "MTU = 1152"; next }
       { print }
     '
     printf '\n[Socks5]\nBindAddress = 127.0.0.1:25344\n'
