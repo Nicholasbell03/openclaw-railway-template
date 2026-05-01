@@ -11,7 +11,8 @@
     "dev:shell": "docker compose exec openclaw bash"
   },
   "dependencies": {
-    "@chrysb/alphaclaw": "0.9.12"
+    "@chrysb/alphaclaw": "0.9.12",
+    "@whiskeysockets/baileys": "^6.0.0"
   },
   "overrides": {
     "openclaw": "2026.4.24"
