@@ -5,7 +5,13 @@ if [ -n "${WIREGUARD_CONFIG:-}" ]; then
   echo "[entrypoint] WIREGUARD_CONFIG present — starting wireproxy"
 
   WG_CONF=/tmp/wireproxy.conf
-  printf '%s\n\n[Socks5]\nBindAddress = 127.0.0.1:25344\n' "$WIREGUARD_CONFIG" > "$WG_CONF"
+  {
+    printf '%s\n' "$WIREGUARD_CONFIG" | awk '
+      /^\[Interface\]/ { print; print "MTU = 1280"; next }
+      { print }
+    '
+    printf '\n[Socks5]\nBindAddress = 127.0.0.1:25344\n'
+  } > "$WG_CONF"
   chmod 600 "$WG_CONF"
 
   wireproxy -c "$WG_CONF" &
