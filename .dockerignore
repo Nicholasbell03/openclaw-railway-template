@@ -9,3 +9,5 @@ coverage/
 .cursor/
 agent-tools/
 *.log
+*.conf
+wireguard/
