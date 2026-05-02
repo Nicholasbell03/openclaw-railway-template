@@ -32,4 +32,16 @@ else
   echo "[entrypoint] WIREGUARD_CONFIG not set — skipping wireproxy. Browser will egress directly." >&2
 fi
 
+# Ensure Playwright's Chromium is installed on the persistent /data volume.
+# The browser path is set by alphaclaw at runtime to /data/.cache/ms-playwright,
+# which doesn't exist during `docker build`, so we install on first container
+# start. Subsequent starts are a no-op once the binary is cached on the volume.
+PW_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/data/.cache/ms-playwright}"
+if ! find "$PW_BROWSERS_PATH" -maxdepth 3 -name "chrome-headless-shell" -executable 2>/dev/null | grep -q .; then
+  echo "[entrypoint] Playwright Chromium not found at $PW_BROWSERS_PATH — installing"
+  PLAYWRIGHT_BROWSERS_PATH="$PW_BROWSERS_PATH" npx --prefix /app playwright install chromium
+else
+  echo "[entrypoint] Playwright Chromium already installed at $PW_BROWSERS_PATH"
+fi
+
 exec alphaclaw start
