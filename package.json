@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@chrysb/alphaclaw": "0.9.12",
+    "@openai/codex": "^0.128.0",
     "@whiskeysockets/baileys": "^6.0.0",
     "playwright": "1.59.1"
   },
