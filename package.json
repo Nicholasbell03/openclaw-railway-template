@@ -11,13 +11,10 @@
     "dev:shell": "docker compose exec openclaw bash"
   },
   "dependencies": {
-    "@chrysb/alphaclaw": "0.9.12",
+    "@chrysb/alphaclaw": "0.9.16",
     "@openai/codex": "^0.128.0",
     "@whiskeysockets/baileys": "^6.0.0",
     "playwright": "1.59.1"
-  },
-  "overrides": {
-    "openclaw": "2026.4.24"
   },
   "engines": {
     "node": ">=22.14.0"
