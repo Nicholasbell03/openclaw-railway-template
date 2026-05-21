@@ -3,14 +3,16 @@ set -euo pipefail
 
 WG_CONF=/tmp/wireproxy.conf
 SOCKS_BIND="127.0.0.1:25344"
+SOCKS_HOST="${SOCKS_BIND%:*}"
+SOCKS_PORT="${SOCKS_BIND##*:}"
 WIREPROXY_PID=""
 
 wait_for_bind() {
-  # Returns 0 if something accepts TCP on 127.0.0.1:25344 within ~10s.
+  # Returns 0 if something accepts TCP on $SOCKS_BIND within ~10s.
   # Uses bash's /dev/tcp pseudo-device so we don't depend on iproute2.
   local _
   for _ in {1..20}; do
-    if (echo > /dev/tcp/127.0.0.1/25344) 2>/dev/null; then
+    if (echo > "/dev/tcp/${SOCKS_HOST}/${SOCKS_PORT}") 2>/dev/null; then
       return 0
     fi
     sleep 0.5
@@ -63,7 +65,7 @@ else
     misses=0
     while true; do
       sleep 60
-      if (echo > /dev/tcp/127.0.0.1/25344) 2>/dev/null; then
+      if (echo > "/dev/tcp/${SOCKS_HOST}/${SOCKS_PORT}") 2>/dev/null; then
         misses=0
         continue
       fi
