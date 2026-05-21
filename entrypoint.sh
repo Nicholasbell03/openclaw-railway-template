@@ -1,35 +1,102 @@
 #!/bin/bash
 set -euo pipefail
 
-if [ -n "${WIREGUARD_CONFIG:-}" ]; then
+WG_CONF=/tmp/wireproxy.conf
+SOCKS_BIND="127.0.0.1:25344"
+WIREPROXY_PID=""
+
+wait_for_bind() {
+  # Returns 0 if something accepts TCP on 127.0.0.1:25344 within ~10s.
+  # Uses bash's /dev/tcp pseudo-device so we don't depend on iproute2.
+  local _
+  for _ in {1..20}; do
+    if (echo > /dev/tcp/127.0.0.1/25344) 2>/dev/null; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  return 1
+}
+
+start_wireproxy() {
+  wireproxy -c "$WG_CONF" &
+  WIREPROXY_PID=$!
+}
+
+if [ -z "${WIREGUARD_CONFIG:-}" ]; then
+  if [ "${ALLOW_NO_PROXY:-}" = "1" ]; then
+    echo "[entrypoint] skipping wireproxy (ALLOW_NO_PROXY=1). Browser will egress directly."
+  else
+    echo "[entrypoint] ERROR: WIREGUARD_CONFIG is not set." >&2
+    echo "[entrypoint] In production, the agent's browser must egress through the proxy." >&2
+    echo "[entrypoint] Set ALLOW_NO_PROXY=1 to run without a proxy (local dev only)." >&2
+    exit 1
+  fi
+else
   echo "[entrypoint] WIREGUARD_CONFIG present — starting wireproxy"
 
-  WG_CONF=/tmp/wireproxy.conf
   {
     printf '%s\n' "$WIREGUARD_CONFIG" | awk '
       /^\[Interface\]/ { print; print "MTU = 1152"; next }
       { print }
     '
-    printf '\n[Socks5]\nBindAddress = 127.0.0.1:25344\n'
+    printf '\n[Socks5]\nBindAddress = %s\n' "$SOCKS_BIND"
   } > "$WG_CONF"
   chmod 600 "$WG_CONF"
 
-  wireproxy -c "$WG_CONF" &
+  start_wireproxy
 
-  for _ in {1..20}; do
-    if (echo > /dev/tcp/127.0.0.1/25344) 2>/dev/null; then
-      echo "[entrypoint] wireproxy SOCKS5 listening on 127.0.0.1:25344"
-      break
-    fi
-    sleep 0.5
-  done
-
-  if ! (echo > /dev/tcp/127.0.0.1/25344) 2>/dev/null; then
-    echo "[entrypoint] ERROR: wireproxy did not bind 127.0.0.1:25344 within 10s" >&2
+  if ! wait_for_bind; then
+    echo "[entrypoint] ERROR: wireproxy did not bind ${SOCKS_BIND} within 10s" >&2
     exit 1
   fi
-else
-  echo "[entrypoint] WIREGUARD_CONFIG not set — skipping wireproxy. Browser will egress directly." >&2
+
+  WG_ENDPOINT=$(grep -iE '^[[:space:]]*Endpoint[[:space:]]*=' "$WG_CONF" | head -1 | tr -d '[:space:]')
+  WG_MTU=$(grep -iE '^[[:space:]]*MTU[[:space:]]*=' "$WG_CONF" | head -1 | tr -d '[:space:]')
+  echo "[entrypoint] wireproxy started: pid=${WIREPROXY_PID} ${WG_ENDPOINT} ${WG_MTU} bind=${SOCKS_BIND}"
+
+  # Watchdog: every 60s probe the SOCKS listener. After 2 consecutive misses
+  # (≥2 min outage), attempt one respawn. If the respawn fails to bind, log
+  # and exit the watchdog — alphaclaw keeps running so the agent's own
+  # WhatsApp probe surfaces the failure to the operator.
+  (
+    misses=0
+    while true; do
+      sleep 60
+      if (echo > /dev/tcp/127.0.0.1/25344) 2>/dev/null; then
+        misses=0
+        continue
+      fi
+      misses=$((misses + 1))
+      if [ "$misses" -lt 2 ]; then
+        continue
+      fi
+      if kill -0 "$WIREPROXY_PID" 2>/dev/null; then
+        alive=yes
+      else
+        alive=no
+      fi
+      echo "[entrypoint][watchdog] SOCKS listener gone on ${SOCKS_BIND} (wireproxy pid=${WIREPROXY_PID} still alive=${alive}) — attempting respawn" >&2
+
+      kill -TERM "$WIREPROXY_PID" 2>/dev/null || true
+      for _ in {1..10}; do
+        if ! kill -0 "$WIREPROXY_PID" 2>/dev/null; then
+          break
+        fi
+        sleep 0.5
+      done
+      kill -KILL "$WIREPROXY_PID" 2>/dev/null || true
+
+      start_wireproxy
+      if wait_for_bind; then
+        echo "[entrypoint][watchdog] respawn succeeded: pid=${WIREPROXY_PID} bind=${SOCKS_BIND}"
+        misses=0
+        continue
+      fi
+      echo "[entrypoint][watchdog] respawn failed to bind — upstream tunnel likely dead, alphaclaw will continue running without proxy until next deploy" >&2
+      exit 0
+    done
+  ) &
 fi
 
 # Ensure Playwright's Chromium is installed on the persistent /data volume.
